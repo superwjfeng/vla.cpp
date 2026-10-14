@@ -263,8 +263,7 @@ bool WeightLoader::upload(ggml_backend_t backend, ggml_backend_buffer_t * out_bu
             total += GGML_PAD(ggml_backend_buft_get_alloc_size(buft, t), align);
         }
         if (total > kVlaMusaMaxBufferBytes) {
-            BufferGroup * group = new BufferGroup();
-            BufferGroup * owned = group;
+            BufferGroup * owned = new BufferGroup();
             size_t i = 0;
             while (i < all.size()) {
                 size_t group_bytes = 0;
@@ -349,7 +348,7 @@ bool WeightLoader::upload(ggml_backend_t backend, ggml_backend_buffer_t * out_bu
     // Opt-in load check: read every weight back off the device and compare it with
     // the checkpoint. A load that lost data fails here, with the tensor named,
     // instead of computing nonsense later -- on a M1000 without the buffer split
-    // below, 455 of pi0.5's 731 tensors read back wrong. Costs one device-to-host
+    // above, 455 of pi0.5's 731 tensors read back wrong. Costs one device-to-host
     // pass over the weights, so it is off unless asked for.
     if (std::getenv("VLA_VERIFY_WEIGHTS")) {
         int64_t checked = 0, bad = 0;

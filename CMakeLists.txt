@@ -87,6 +87,7 @@ elseif(GGML_OPENVINO)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     set(_vla_llama_patch PATCH_COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch_ggml_openvino.py <SOURCE_DIR>)
+
     # Before the fetch: ggml's own ggml-openvino/CMakeLists.txt does
     # find_package(OpenVINO REQUIRED ...) and would get there first, so this
     # message only reaches anyone if it runs earlier. Same components it asks for.
