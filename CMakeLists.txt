@@ -19,7 +19,7 @@ elseif(UNIX)
 endif()
 
 set(_vla_accel "")
-foreach(_flag GGML_CUDA GGML_SYCL GGML_METAL GGML_OPENVINO GGML_HEXAGON GGML_OPENCL)
+foreach(_flag GGML_CUDA GGML_MUSA GGML_SYCL GGML_METAL GGML_OPENVINO GGML_HEXAGON GGML_OPENCL)
     if(${_flag})
         list(APPEND _vla_accel ${_flag})
     endif()
@@ -39,7 +39,7 @@ if(_vla_accel_n GREATER 0 AND GGML_BACKEND_DL)
         "GGML_BACKEND_DL=ON is not supported with ${_vla_accel}: the backend is "
         "built as a module and src/backend.h links its init directly.")
 endif()
-foreach(_flag GGML_VULKAN GGML_HIP GGML_MUSA GGML_CANN GGML_WEBGPU)
+foreach(_flag GGML_VULKAN GGML_HIP GGML_CANN GGML_WEBGPU)
     if(${_flag})
         message(WARNING "${_flag}=ON reaches vlm-server through llama only; src/backend.h has no ${_flag} path, so the VLA archs run on CPU.")
     endif()
@@ -346,6 +346,17 @@ if(GGML_CUDA)
     )
     target_link_libraries(vla_cuda_ops PUBLIC CUDA::cublas CUDA::cudart ggml-cuda vla_fq_kernels)
     target_link_libraries(vla_core PRIVATE vla_cuda_ops)
+endif()
+
+# Moore Threads GPUs: ggml-musa compiles ggml-cuda's sources with mcc and defines
+# GGML_USE_CUDA for the whole build, so the CUDA rung of src/backend.h brings the
+# device up and the ops the float archs build run on it. What does not exist there
+# is the ggml extension hook and the nvcc translation units behind it
+# (src/cuda/, src/kernels/), so the two registrations they answer are no-ops in
+# src/cuda/vla_cuda_musa_stub.cpp. Only pi0, Evo-1, BitVLA and a FoldQuant GGUF
+# call them; pi0.5 and the other float archs keep their stock paths.
+if(GGML_MUSA AND NOT GGML_CUDA)
+    target_sources(vla_core PRIVATE src/cuda/vla_cuda_musa_stub.cpp)
 endif()
 
 if(GGML_SYCL AND NOT GGML_CUDA)

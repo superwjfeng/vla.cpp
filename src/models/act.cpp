@@ -39,7 +39,7 @@
 #include "ggml.h"
 #include "ggml-backend.h"
 
-#ifdef GGML_USE_CUDA
+#if defined(GGML_USE_CUDA) && !defined(GGML_USE_MUSA)
 #include <cuda_runtime.h>
 #endif
 
@@ -95,7 +95,13 @@ int64_t down2(int64_t n, int64_t k, int64_t pad) {
 // (Turing and newer). Before that, Volta's Jetson Xavier included, it falls back
 // to a naive kernel several times slower than im2col.
 bool cuda_conv_has_mma() {
-#ifdef GGML_USE_CUDA
+#if defined(GGML_USE_MUSA)
+    // A MUSA build answers the CUDA API, but its compute-capability query reports
+    // the MUSA arch (mp_22 is 2.2), which the Turing threshold below cannot read,
+    // so it would answer "no MMA" for every device. ggml-musa's im2col + GEMM
+    // convolution is supported everywhere, so take that path rather than guess.
+    return false;
+#elif defined(GGML_USE_CUDA)
     int major = 0, minor = 0;
     const int dev = backend_device_index();
     return cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev) == cudaSuccess &&
