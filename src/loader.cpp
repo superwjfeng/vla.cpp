@@ -19,12 +19,40 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+
+#ifdef GGML_USE_MUSA
+#include "ggml-backend-impl.h"
+#endif
 
 namespace vla {
 
 namespace {
 
 constexpr size_t NAME_CAP = 256;
+
+#ifdef GGML_USE_MUSA
+// A MUSA device (MUSA 5.1.0 on an M1000) loses host-to-device uploads into one
+// device allocation larger than 4 GiB: with a single 5 GiB weight buffer 78 of
+// 419 tensors read back wrong, byte for byte the same every run, and it makes no
+// difference whether the copy is synchronous, whether it is synchronized after
+// every tensor, whether the host side is pinned, or in which order the tensors
+// are uploaded. Splitting the same load over buffers under that size is exact.
+// The group handle lets the archs keep treating the weights as one buffer.
+constexpr size_t kVlaMusaMaxBufferBytes = (size_t) 3 << 30;
+
+struct BufferGroup {
+    std::vector<ggml_backend_buffer_t> bufs;
+};
+
+void buffer_group_free(ggml_backend_buffer_t buf) {
+    BufferGroup * g = static_cast<BufferGroup *>(buf->context);
+    for (ggml_backend_buffer_t b : g->bufs) {
+        ggml_backend_buffer_free(b);
+    }
+    delete g;
+}
+#endif  // GGML_USE_MUSA
 
 // Resident type of a float rebuild: the requested GEMM type when it is a float
 // type, F32 otherwise.
@@ -221,12 +249,65 @@ bool WeightLoader::upload(ggml_backend_t backend, ggml_backend_buffer_t * out_bu
         return false;
     }
 
-    ggml_backend_buffer_t buf = alloc_weights(ctx_, backend);
-    if (!buf) {
-        std::fprintf(stderr, "vla(%s): alloc_weights failed (OOM?)\n", arch_);
-        return false;
+    ggml_backend_buffer_t buf = nullptr;
+    *out_buf = nullptr;
+#ifdef GGML_USE_MUSA
+    {
+        ggml_backend_buffer_type_t buft = ggml_backend_get_default_buffer_type(backend);
+        const size_t align = ggml_backend_buft_get_alignment(buft);
+
+        std::vector<ggml_tensor *> all;
+        size_t total = 0;
+        for (ggml_tensor * t = ggml_get_first_tensor(ctx_); t; t = ggml_get_next_tensor(ctx_, t)) {
+            all.push_back(t);
+            total += GGML_PAD(ggml_backend_buft_get_alloc_size(buft, t), align);
+        }
+        if (total > kVlaMusaMaxBufferBytes) {
+            BufferGroup * group = new BufferGroup();
+            BufferGroup * owned = group;
+            size_t i = 0;
+            while (i < all.size()) {
+                size_t group_bytes = 0;
+                size_t j = i;
+                for (; j < all.size(); ++j) {
+                    const size_t need = GGML_PAD(ggml_backend_buft_get_alloc_size(buft, all[j]), align);
+                    if (group_bytes > 0 && group_bytes + need > kVlaMusaMaxBufferBytes)
+                        break;
+                    group_bytes += need;
+                }
+                ggml_backend_buffer_t part = ggml_backend_buft_alloc_buffer(buft, group_bytes);
+                if (!part) {
+                    for (ggml_backend_buffer_t b : owned->bufs) ggml_backend_buffer_free(b);
+                    delete owned;
+                    std::fprintf(stderr, "vla(%s): weight buffer allocation failed (OOM?)\n", arch_);
+                    return false;
+                }
+                ggml_backend_buffer_set_usage(part, GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+                owned->bufs.push_back(part);
+                size_t off = 0;
+                for (size_t k = i; k < j; ++k) {
+                    ggml_backend_tensor_alloc(part, all[k], (char *) ggml_backend_buffer_get_base(part) + off);
+                    off += GGML_PAD(ggml_backend_buft_get_alloc_size(buft, all[k]), align);
+                }
+                i = j;
+            }
+            std::printf("vla(%s): weights in %zu buffers of at most %.1f GiB (%.1f GiB total)\n",
+                        arch_, owned->bufs.size(), kVlaMusaMaxBufferBytes/(1024.0*1024.0*1024.0),
+                        total/(1024.0*1024.0*1024.0));
+            ggml_backend_buffer_i iface = {};
+            iface.free_buffer = buffer_group_free;
+            *out_buf = ggml_backend_buffer_init(buft, iface, owned, total);
+        }
     }
-    *out_buf = buf;
+#endif
+    if (!*out_buf) {
+        buf = alloc_weights(ctx_, backend);
+        if (!buf) {
+            std::fprintf(stderr, "vla(%s): alloc_weights failed (OOM?)\n", arch_);
+            return false;
+        }
+        *out_buf = buf;
+    }
 
     for (ggml_tensor * t=ggml_get_first_tensor(ctx_); t; t=ggml_get_next_tensor(ctx_, t)) {
         const char * name = ggml_get_name(t);

@@ -363,6 +363,9 @@ endif()
 # call them; pi0.5 and the other float archs keep their stock paths.
 if(GGML_MUSA AND NOT GGML_CUDA)
     target_sources(vla_core PRIVATE src/cuda/vla_cuda_musa_stub.cpp)
+    # src/loader.cpp wraps the weight buffers in one handle it frees itself, which
+    # needs ggml_backend_buffer_init from ggml's internal header.
+    target_include_directories(vla_core SYSTEM PRIVATE ${llama_SOURCE_DIR}/ggml/src)
 endif()
 
 if(GGML_SYCL AND NOT GGML_CUDA)
