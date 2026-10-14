@@ -345,6 +345,46 @@ bool WeightLoader::upload(ggml_backend_t backend, ggml_backend_buffer_t * out_bu
         }
         ggml_backend_tensor_set(f.dst, parts.data(), 0, parts.size());
     }
+
+    // Opt-in load check: read every weight back off the device and compare it with
+    // the checkpoint. A load that lost data fails here, with the tensor named,
+    // instead of computing nonsense later -- on a M1000 without the buffer split
+    // below, 455 of pi0.5's 731 tensors read back wrong. Costs one device-to-host
+    // pass over the weights, so it is off unless asked for.
+    if (std::getenv("VLA_VERIFY_WEIGHTS")) {
+        int64_t checked = 0, bad = 0;
+        for (ggml_tensor * t = ggml_get_first_tensor(ctx_); t; t = ggml_get_next_tensor(ctx_, t)) {
+            const char * name = ggml_get_name(t);
+            if (t->view_src || !t->buffer || as_float_.count(name)) {
+                continue;  // views, fused destinations and rebuilt weights have no source of their own
+            }
+            const bool gn = std::find(gemma_norms_.begin(), gemma_norms_.end(), name) != gemma_norms_.end();
+            std::vector<uint8_t> want = g_.read_convert(name, t->type, gn);
+            if (want.size() != ggml_nbytes(t)) {
+                continue;
+            }
+            std::vector<uint8_t> got(want.size(), 0);
+            ggml_backend_tensor_get(t, got.data(), 0, got.size());
+            size_t diff = 0;
+            for (size_t k = 0; k < want.size(); ++k) {
+                if (want[k] != got[k]) {
+                    ++diff;
+                }
+            }
+            ++checked;
+            if (diff) {
+                ++bad;
+                std::fprintf(stderr, "vla(%s): %s does not match the checkpoint (%zu of %zu bytes differ)\n",
+                             arch_, name, diff, want.size());
+            }
+        }
+        std::printf("vla(%s): VLA_VERIFY_WEIGHTS: %lld of %lld weight tensors differ from the checkpoint\n",
+                    arch_, (long long) bad, (long long) checked);
+        if (bad) {
+            ok_ = false;
+            return false;
+        }
+    }
     return true;
 }
 
