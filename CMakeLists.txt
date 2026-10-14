@@ -87,13 +87,6 @@ elseif(GGML_OPENVINO)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     set(_vla_llama_patch PATCH_COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch_ggml_openvino.py <SOURCE_DIR>)
-elseif(GGML_MUSA)
-    # The MUSA driver rejects the shared-memory opt-in it advertises, which aborts
-    # the first softmax. See scripts/patch_ggml_musa.py.
-    find_package(Python3 COMPONENTS Interpreter REQUIRED)
-    set(_vla_llama_patch PATCH_COMMAND ${Python3_EXECUTABLE}
-        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch_ggml_musa.py <SOURCE_DIR>)
-
     # Before the fetch: ggml's own ggml-openvino/CMakeLists.txt does
     # find_package(OpenVINO REQUIRED ...) and would get there first, so this
     # message only reaches anyone if it runs earlier. Same components it asks for.
@@ -104,6 +97,13 @@ elseif(GGML_MUSA)
             "(scripts/install_ov.sh) and 'source /opt/intel/openvino/setupvars.sh' "
             "in the shell that configures. See docs/backend/ov.md.")
     endif()
+endif()
+if(GGML_MUSA AND NOT GGML_CUDA)
+    # The MUSA driver rejects the shared-memory opt-in it advertises, which aborts
+    # the first softmax. See scripts/patch_ggml_musa.py.
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(_vla_llama_patch PATCH_COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch_ggml_musa.py <SOURCE_DIR>)
 endif()
 # Overridable so a regression can be bisected against another tag in a separate
 # build dir (-DVLA_LLAMA_TAG=b10326) without editing this file. The patch
