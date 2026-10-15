@@ -355,7 +355,13 @@ bool WeightLoader::upload(ggml_backend_t backend, ggml_backend_buffer_t * out_bu
         for (ggml_tensor * t = ggml_get_first_tensor(ctx_); t; t = ggml_get_next_tensor(ctx_, t)) {
             const char * name = ggml_get_name(t);
             if (t->view_src || !t->buffer || as_float_.count(name)) {
-                continue;  // views, fused destinations and rebuilt weights have no source of their own
+                continue;  // views and rebuilt weights have no source of their own
+            }
+            // A fused destination (a DiT's qkv/kv, an arch's q/k/v) is assembled from
+            // several sources at load time, so it has no one-to-one tensor in the file
+            // and read_convert below would report it missing.
+            if (std::any_of(fused_.begin(), fused_.end(), [t](const Fused & f) { return f.dst == t; })) {
+                continue;
             }
             const bool gn = std::find(gemma_norms_.begin(), gemma_norms_.end(), name) != gemma_norms_.end();
             std::vector<uint8_t> want = g_.read_convert(name, t->type, gn);
