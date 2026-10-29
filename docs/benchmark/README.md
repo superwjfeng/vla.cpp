@@ -58,3 +58,7 @@ Notes on the table:
 - [`docs/backend/ov.md`](../backend/ov.md) lists π0's output on the AI Boost NPU
   as wrong at an earlier llama.cpp pin. It was not re-checked in this round, so
   that cell is a latency only.
+
+## Performance investigations
+
+- [GR00T N1.7 copy kernel A/B trace on MUSA M1000](musa-copy-ab-gr00t-n17-20261029.md)
