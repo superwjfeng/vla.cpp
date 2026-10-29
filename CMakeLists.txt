@@ -101,7 +101,9 @@ elseif(GGML_OPENVINO)
 endif()
 if(GGML_MUSA AND NOT GGML_CUDA)
     # The MUSA driver rejects the shared-memory opt-in it advertises, which aborts
-    # the first softmax. See scripts/patch_ggml_musa.py.
+    # the first softmax. The same patch also adds the F32 vectorized/transpose
+    # copy paths that avoid the scalar copy bottleneck. See
+    # scripts/patch_ggml_musa.py.
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     set(_vla_llama_patch PATCH_COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch_ggml_musa.py <SOURCE_DIR>)
